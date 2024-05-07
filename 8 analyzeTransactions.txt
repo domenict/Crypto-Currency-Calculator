@@ -1,0 +1,846 @@
+function analyzeTransactions() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let coinArray;
+  let washSales = [];
+  let allData;
+  let thisYearData;
+  let thisYearNotes;
+  let observeWash = Boolean(mainPage.getRange('E28').isChecked());
+  
+  let checkSort = verifySort();
+  let isSorted = checkSort[0];
+  let startingRow = checkSort[2];
+  let numberOfRows = checkSort[3];
+  let lastRow = checkSort[4];
+  let rowOffset = 4;
+  let fullRange = transactions.getRange('A' + rowOffset + ':W' + lastRow);
+  let yearRange = transactions.getRange(startingRow, 1, numberOfRows, 23);
+  if (isSorted) {
+    yearRange.clearNote();
+    let storedCoinArray = getCoinArray(startingRow);
+    coinArray = JSON.parse(storedCoinArray[0]);
+    numberOfRows += startingRow - storedCoinArray[1];
+    startingRow = storedCoinArray[1];
+    yearRange = transactions.getRange(startingRow, 1, numberOfRows, 23);
+    analyzeRows();
+    setWallet();
+    yearRange.setValues(thisYearData).setNotes(thisYearNotes);
+  } else {
+    Logger.log(checkSort[1]);
+  }
+  Logger.log('FINAL COINARRAY\t\t' + JSON.stringify(coinArray)); 
+  
+  function analyzeRows() {
+    let currentRow;
+    let transactionType;
+    allData = fullRange.getValues();
+    thisYearData = allData.slice((startingRow - rowOffset), (numberOfRows + startingRow - rowOffset));
+    thisYearNotes = yearRange.getNotes();
+
+    // Loops through thisYearData to grab EXCHANGE and COIN strings, call getIndexes, and checks which function to apply via TRANSACTION TYPE
+    for (i = 0; i < thisYearData.length; i++) {
+      currentRow = i;
+      transactionType = thisYearData[i][2];
+      let buyExchange = thisYearData[i][5];
+      let sellExchange = thisYearData[i][11];
+      let coin = thisYearData[i][1];
+      let tradedExchange = thisYearData[i][21];
+      let tradedCoin = thisYearData[i][20];
+
+      let bothIndexes;
+      if (transactionType === "BUY") {
+        bothIndexes = getIndexes(buyExchange, coin);
+      } else {
+        bothIndexes = getIndexes(sellExchange, coin);
+      }
+      let exchangeIndex = bothIndexes[0];
+      let coinIndex = bothIndexes[1];
+      let tradedExchangeIndex, tradedCoinIndex;
+      if (transactionType === 'TRADE' || transactionType === 'SWAP' || transactionType === 'TRANSFER') {
+        bothIndexes = getIndexes(tradedExchange, tradedCoin);
+        tradedExchangeIndex = bothIndexes[0];
+        tradedCoinIndex = bothIndexes[1];
+      }    
+
+      if (transactionType === "BUY") {
+        buyCoin(exchangeIndex, coinIndex)
+      } else if (transactionType !== "") {
+        sellCoin(exchangeIndex, coinIndex, sellExchange, coin, tradedExchangeIndex, tradedCoinIndex, tradedExchange, tradedCoin);
+      } else if (Number(thisYearData[i][0]) !== 0 && transactionType === '') {
+        Logger.log('No transaction type')
+      }
+      //Logger.log(coinArray)
+    }
+
+
+    // First determines if EXCHANGE and COIN exists and add if not, then returns bothIndexes to be use by TRANSACTION TYPE function
+    function getIndexes(exchange, coin) {
+      let exchangeIndex, coinIndex;
+      if (exchange !== '') {
+        for (let j = 0; j < coinArray.length; j++) {
+          if (coinArray[j][0] === exchange) {
+            exchangeIndex = j;
+          }
+        }
+        if (exchangeIndex === undefined) {
+          let addExchange = [exchange];
+          coinArray.push(addExchange);
+          exchangeIndex = coinArray.length -1;
+        }
+      } else {
+        Logger.log('exchange is missing');
+      }
+
+      if (coin !== '') {
+        for (let k = 0; k < coinArray[exchangeIndex].length; k++) {
+          if (coinArray[exchangeIndex][k][0] === coin) {
+            coinIndex = k;
+          }
+        }
+        if (coinIndex === undefined) {
+          let addCoin = [coin];
+          coinArray[exchangeIndex].push(addCoin);
+          coinIndex = coinArray[exchangeIndex].length - 1;
+        }
+      } else {
+        Logger.log('coin is missing');
+      }
+
+      return [exchangeIndex, coinIndex];
+    }
+
+
+    // BUY function takes information from thisYearData, stores into a newPurchase array, and then pushes newPurchase into coinArray using bothIndexes
+    function buyCoin(exchangeIndex, coinIndex){
+      let limitToEighteen = 18 - leadingZero(thisYearData[currentRow][0]).split('.')[1].length;
+      let amount =  thisYearData[currentRow][0] = leadingZero(thisYearData[currentRow][0]).slice(0,thisYearData[currentRow][0].length + limitToEighteen);
+      let date =  Utilities.formatDate(thisYearData[currentRow][4], activeSheet.getSpreadsheetTimeZone(), "MM/dd/yyyy h:mm:ss a");
+      let marketValue =  thisYearData[currentRow][6].toString();
+      let costBasis =  thisYearData[currentRow][7].toString();
+      let row = startingRow - rowOffset + currentRow;
+
+      let newPurchase = [];
+      newPurchase.push(amount);
+      newPurchase.push(date);
+      newPurchase.push(marketValue);
+      newPurchase.push(costBasis);
+      newPurchase.push(row);
+      coinArray[exchangeIndex][coinIndex].push(newPurchase);
+      thisYearNotes[currentRow][22] = JSON.stringify(coinArray);
+
+      //This section is to add purchases flagged from a wash sale made prior to the purchase
+      if (washSales[0] !== undefined) {
+        //Logger.log(washSales)
+        while (washSales[0][0] === row) {
+          let amountToWash = washSales[0][1];
+          let addToCostBasis = washSales[0][2];
+          let mostRecentPurchaseIndex = coinArray[exchangeIndex][coinIndex].length-1;
+          let purchaseToModify = coinArray[exchangeIndex][coinIndex][mostRecentPurchaseIndex];
+
+          //Logger.log(amountToWash + ' ' + purchaseToModify[0])
+          if (bigDecimal(amountToWash, purchaseToModify[0], 'compare') === 'equal') {
+            purchaseToModify[3] = bigDecimal(purchaseToModify[3], addToCostBasis, 'add');
+            purchaseToModify.push(washSales[0][3]);
+          } else {
+            let split = purchaseToModify.slice(0);
+            coinArray[exchangeIndex][coinIndex].push(split);
+            split = coinArray[exchangeIndex][coinIndex][(coinArray[exchangeIndex][coinIndex].length-1)];
+            let purchaseToModifyAmount = amountToWash;
+            let purchaseToModifyValue = bigDecimal(purchaseToModify[2], bigDecimal(amountToWash, purchaseToModify[0], 'div'), 'mult', 18);
+            let purchaseToModifyCost = bigDecimal(purchaseToModify[3], bigDecimal(amountToWash, purchaseToModify[0], 'div'), 'mult', 18);
+
+            purchaseToModify[0] = purchaseToModifyAmount;
+            purchaseToModify[2] = purchaseToModifyValue;
+            purchaseToModify[3] = purchaseToModifyCost;
+            purchaseToModify.push(washSales[0][3]);
+            split[0] = bigDecimal(split[0], purchaseToModifyAmount, 'sub');
+            split[2] = bigDecimal(split[2], purchaseToModifyValue, 'sub');
+            split[3] = bigDecimal(split[3], purchaseToModifyCost, 'sub');
+            purchaseToModify[3] = bigDecimal(purchaseToModify[3], addToCostBasis, 'add');
+
+            if (Number(split[0]) === 0) {
+              coinArray[exchangeIndex][coinIndex].pop();
+            }
+          }
+
+          washSales.shift();
+          if (washSales.length === 0) {
+            break;
+          }
+        }
+      }
+    }
+
+
+    // SELL function that takes in a lot of information, does a series of calculations, then writes to coinArray and TRANSACTIONS the result
+    function sellCoin(exchangeIndex, coinIndex, sellExchange, coin, tradedExchangeIndex, tradedCoinIndex, tradedExchange, tradedCoin) {
+      let limitToEighteen = 18 - leadingZero(thisYearData[currentRow][0]).split('.')[1].length;
+      let amountSold = thisYearData[currentRow][0] = leadingZero(thisYearData[currentRow][0]).slice(0,thisYearData[currentRow][0].length + limitToEighteen);
+      thisYearData[currentRow][9] = ''; 
+      let soldDate = thisYearData[currentRow][10];
+      let method = thisYearData[currentRow][12];
+      let proceeds = thisYearData[currentRow][13].toString();
+      let gasFee = thisYearData[currentRow][14].toString();
+      let sellingFee = thisYearData[currentRow][15].toString();
+      if (thisYearData[currentRow][15] === '') {
+        thisYearData[currentRow][15] = '0';
+      }
+      let amountTraded = thisYearData[currentRow][19];
+      let soldRows = [];
+      let blocksThisSale = [];
+      let dateAcquiredNote = '';
+      let totalPurchaseValue = '0';
+      let currentSold;
+
+      let gasFeeOptions = mainPage.getRange('B7:H12').getValues();
+      let gasFeeType;
+      let proceedsFromGas = '0'
+      let gasWashable = false;
+      let gasInSale = false;  
+      for (let a = 0; a < gasFeeOptions.length; a++) {
+        if (gasFeeOptions[a][0] === thisYearData[i][2]) {
+          gasFeeType = gasFeeOptions[a].indexOf(true);
+          break;
+        }
+      }
+      let totalWashed;
+
+      currentSold = amountSold;
+      saleDataEntry();
+      if (transactionType === 'SELL' || transactionType === 'TRADE') {
+        if (transactionType === 'TRADE') {
+          moveCoin();
+        }
+        costBasis = bigDecimal(totalPurchaseValue, sellingFee, 'add');
+        gasFees();
+        thisYearData[currentRow][16] = costBasis;
+        thisYearData[currentRow][17] = bigDecimal(bigDecimal(proceeds, proceedsFromGas, 'add'), costBasis, 'sub');
+        if (observeWash) {
+          calculateWash();
+        }
+        writeNotes();
+      } else {
+        if (transactionType === 'SWAP' || transactionType === 'TRANSFER') {
+          moveCoin();
+        }
+        blocksThisSale = [];
+        costBasis = '0'
+        let storeMarketValue = proceeds;
+        gasFees();  
+        proceeds = bigDecimal(proceeds, storeMarketValue, 'sub');
+        if (Number(costBasis) !== 0) {
+          thisYearData[currentRow][16] = costBasis;
+          thisYearData[currentRow][17] = bigDecimal(bigDecimal(proceeds, proceedsFromGas, 'add'), costBasis, 'sub');
+        } else {
+          thisYearData[currentRow][16] = '0';
+          thisYearData[currentRow][17] = '0';
+        }
+        if (observeWash && gasWashable) {
+          calculateWash();
+        }
+        writeNotes();
+        if (transactionType === 'GIFT' || transactionType === 'DONATE') {
+          thisYearData[currentRow][19] = '-'
+          thisYearData[currentRow][20] = '-'
+        }
+      }
+      
+
+      //******************************************************************************** SALE DATA ENTRY ********************************************************************************
+      // Grabs variables from first coin in coinArray[index] & subtracts amount recursively until currentSold === 0;
+      function saleDataEntry() { 
+        if (coinArray[exchangeIndex][0] !== sellExchange || coinArray[exchangeIndex][coinIndex][0] !== coin) {
+          Logger.log('No more of this coin from this exchange');
+          return;
+        }
+        //Determines the index within coinArray[exchangeIndex][coinIndex] to use based on METHOD
+        let purchaseIndex = 1;
+        if (method === 'LIFO') {
+          purchaseIndex = coinArray[exchangeIndex][coinIndex].length - 1;
+        } else if (method === 'HIFO') {
+          let highestValuePerCoin = '0';
+          for (let m = 1; m < coinArray[exchangeIndex][coinIndex].length; m++) {
+            let valuePerCoin = bigDecimal(coinArray[exchangeIndex][coinIndex][m][2], coinArray[exchangeIndex][coinIndex][m][0], 'div');
+            if (bigDecimal(valuePerCoin, highestValuePerCoin, 'compare') === 'more') {
+              highestValuePerCoin = valuePerCoin;
+              purchaseIndex = m;
+            }
+          }
+        } else {
+          thisYearData[currentRow][12] = 'FIFO'
+        }
+        let amountInCoinArray = coinArray[exchangeIndex][coinIndex][purchaseIndex][0];
+        let buyDate = coinArray[exchangeIndex][coinIndex][purchaseIndex][1];
+        let marketValue = coinArray[exchangeIndex][coinIndex][purchaseIndex][2];
+        let purchaseValue = coinArray[exchangeIndex][coinIndex][purchaseIndex][3];
+        let row = coinArray[exchangeIndex][coinIndex][purchaseIndex][4];
+        let holdingPeriod = coinArray[exchangeIndex][coinIndex][purchaseIndex][5];
+
+        // Determines amount to use out of purchase. If currentSold > amountToUse, uses full amount of purchase. 
+        let amountToUse; 
+        if (bigDecimal(currentSold, amountInCoinArray, 'compare') === 'more') {
+          amountToUse = amountInCoinArray;
+          currentSold = bigDecimal(currentSold, amountToUse, 'sub');
+        } else {
+          amountToUse = leadingZero(currentSold);
+          currentSold = '0';
+        }
+        //Logger.log(coinArray)
+        let percentOfMarketValue = bigDecimal(marketValue, bigDecimal(amountToUse, amountInCoinArray, 'div'), 'mult', 18);
+        let valueToUse = bigDecimal(purchaseValue, bigDecimal(amountToUse, amountInCoinArray, 'div'), 'mult', 18);
+        totalPurchaseValue = bigDecimal(totalPurchaseValue, valueToUse, 'add');   
+
+        // Writes new amounts to the original purchase in coinArray[exchangeIndex][coinIndex];
+        coinArray[exchangeIndex][coinIndex][purchaseIndex][0] = bigDecimal(amountInCoinArray, amountToUse, 'sub');
+        coinArray[exchangeIndex][coinIndex][purchaseIndex][2] = Number(bigDecimal(marketValue, percentOfMarketValue, 'sub')).toString();
+        coinArray[exchangeIndex][coinIndex][purchaseIndex][3] = Number(bigDecimal(purchaseValue, valueToUse, 'sub')).toString();
+
+        // Checks if amounts in the nested element are 0 and removes parent elements from coinArray
+        if (bigDecimal(coinArray[exchangeIndex][coinIndex][purchaseIndex][0], '.000000000000000001', 'compare') === 'less') {
+          coinArray[exchangeIndex][coinIndex].splice(purchaseIndex, 1);
+        } 
+        if (coinArray[exchangeIndex][coinIndex][1] === undefined) {
+           coinArray[exchangeIndex].splice(coinIndex,1);
+        }
+        if (coinArray[exchangeIndex][1] === undefined) {
+          coinArray.splice(exchangeIndex,1);
+        }
+
+        //This section documents each block of coin sold. It will be used to output a note used for outputing the tax document, 
+        // as well as calculate wash sales when applicable.
+        if (soldRows.indexOf(row) === -1) {
+          soldRows.push(row);
+        }   
+        let acquiredDateToUse;
+        if (holdingPeriod !== undefined) {
+          acquiredDateToUse = holdingPeriod;
+        } else {
+          acquiredDateToUse = buyDate;
+        }
+        let thisBlockOfCoin = [];
+        thisBlockOfCoin.push(buyDate, acquiredDateToUse, amountToUse, valueToUse, percentOfMarketValue);
+        blocksThisSale.push(thisBlockOfCoin);
+
+        //Recursion if all sold blocks are not disposed
+        if (currentSold !== '0') { 
+          if (coinArray[0] !== undefined) {
+            if (coinArray[exchangeIndex][0] !== undefined && coinArray[exchangeIndex][0] == sellExchange) {
+              if (coinArray[exchangeIndex][coinIndex][0] !== undefined && coinArray[exchangeIndex][coinIndex][0] === coin) {
+                saleDataEntry();
+              } else {
+                Logger.log('coin empty');
+              }
+            } else {
+              Logger.log('exchange empty');
+            }
+          } else {
+            Logger.log('wallet empty')
+          }
+        }
+      }
+
+
+      //******************************************************************************* MOVE COIN *******************************************************************************
+      function moveCoin() {
+        if (transactionType === 'TRANSFER') {
+          amountTraded = thisYearData[currentRow][19] = amountSold;
+          tradedCoin = thisYearData[currentRow][20] = coin;
+        }
+        bothIndexes = getIndexes(tradedExchange, tradedCoin);
+        tradedExchangeIndex = bothIndexes[0];
+        tradedCoinIndex = bothIndexes[1];
+        let newExchange = coinArray[tradedExchangeIndex][tradedCoinIndex];
+
+        if (transactionType === 'TRADE') {
+          let tradeDate = Utilities.formatDate(soldDate, activeSheet.getSpreadsheetTimeZone(), "MM/dd/yyyy h:mm:ss a");
+          let newRow = startingRow - rowOffset + currentRow;
+          newExchange.push([amountTraded, tradeDate, proceeds, proceeds, newRow])
+        }
+
+        if (transactionType === 'SWAP' || transactionType === 'TRANSFER') { 
+          for (let aa = 0; aa < blocksThisSale.length; aa++) {
+            newExchange.push([]);
+            let newTradedCoin = coinArray[tradedExchangeIndex][tradedCoinIndex][coinArray[tradedExchangeIndex][tradedCoinIndex].length - 1];
+            
+            //blocksThisSale = (buyDate, acquiredDateToUse, amountToUse, valueToUse, percentOfMarketValue);
+            if (transactionType === 'SWAP') {
+              let amountProportion = bigDecimal(blocksThisSale[aa][2], amountSold, 'div');
+              newTradedCoin[0] = bigDecimal(amountProportion, amountTraded, 'mult', 18);
+            } else {
+              newTradedCoin[0] = blocksThisSale[aa][2]
+            }
+            newTradedCoin[1] = blocksThisSale[aa][0];
+            newTradedCoin[2] = blocksThisSale[aa][4];
+            newTradedCoin[3] = blocksThisSale[aa][3];
+            if (blocksThisSale[aa][1] !== blocksThisSale[aa][0]) {
+              newTradedCoin.push(blocksThisSale[aa][1]);
+            }
+            
+            if (aa === blocksThisSale.length - 1 && transactionType === 'SWAP') {
+              let sum = '0';
+              let start = newExchange.length - 1;
+              let finish = newExchange.length -  blocksThisSale.length - 1;
+              for (let bb = start; bb > finish; bb--) {
+                sum = bigDecimal(sum, newExchange[bb][0], 'add')
+              }
+              //Logger.log(sum)
+
+              if (bigDecimal(sum, amountTraded, 'compare') !== 'equal') {
+                let diff = bigDecimal(sum, amountTraded, 'sub');
+                let increment = '.000000000000000001'
+                if (bigDecimal(diff, '0', 'compare') === 'less') {
+                  increment = '-.000000000000000001'
+                  diff = bigDecimal (diff, '-1', 'mult');
+                }
+                
+                let int = start;
+                while (Number(diff) !== 0) {
+                  newExchange[int][0] = bigDecimal(newExchange[int][0], increment, 'sub')
+                  diff = bigDecimal(diff, '.000000000000000001', 'sub')
+                  int--;
+                  if (int === finish) {
+                    int = start;
+                  }
+                }               
+              }
+            } 
+          }
+        }
+      }
+
+
+      //******************************************************************************** GAS FEES ********************************************************************************
+      function gasFees() {
+        if (gasFee !== '' && !isNaN(Number(gasFee+0))) {
+          currentSold = bigDecimal(currentSold, gasFee, 'add');
+          if (Number(gasFee) === 0 || gasFee === '-') {
+            thisYearData[currentRow][14] = '-';
+          } else {
+            thisYearData[currentRow][14] = leadingZero(gasFee);
+          }
+        } else {
+          gasFee = '0';
+          thisYearData[currentRow][14] = '-';
+        }
+
+        if (bigDecimal(gasFee, '0', 'compare') === 'more') {
+          gasInSale = true;
+          currentSold = gasFee;
+          saleDataEntry();
+
+          let gasValue = blocksThisSale[blocksThisSale.length-1][3];
+          if (gasFeeType === 2) {         //CAPITAL GAIN
+            let gasCapital = bigDecimal(gasFee, bigDecimal(proceeds, amountSold, 'div'), 'mult', 18);
+            costBasis = bigDecimal(costBasis, gasValue, 'add');
+            let gasGains = bigDecimal(gasCapital, gasValue, 'sub');
+
+            if (bigDecimal(gasCapital, '0','compare') === 'more') {
+              proceedsFromGas = gasCapital;
+            }
+            if (bigDecimal(gasGains, '0','compare') === 'less') {
+              gasWashable = true;
+            }
+          } else if (gasFeeType === 3) {  //NEUTRAL LOSS
+            blocksThisSale.pop();
+          } else if (gasFeeType === 5) {  //CAPITAL LOSS
+            costBasis = bigDecimal(costBasis, gasValue, 'add')
+            gasWashable = true;
+          } else if (gasFeeType === 6) {  //ADD TO COST BASIS
+            let addToGasValue = bigDecimal(gasFee, bigDecimal(proceeds, amountSold, 'div'), 'mult', 18);
+            gasValue = blocksThisSale[blocksThisSale.length-1][3] = bigDecimal(gasValue, addToGasValue, 'add');
+            costBasis = bigDecimal(costBasis, gasValue, 'add');
+            gasWashable = true;
+          } else {
+            Logger.log('Gas Fee option not selected.')
+          }   
+        }
+      }
+
+
+      //******************************************************************************** WRITE NOTES ******************************************************************************** 
+      function writeNotes() {
+        if (proceedsFromGas !== '0') {
+          thisYearNotes[currentRow][13] = 'GAS PROCEEDS: $' + convertToCurrency(proceedsFromGas);
+        }
+
+        let gasSeparate = Boolean(gasInSale && gasFeeType !== 3)
+        for (let z = 0; z < blocksThisSale.length; z++) {
+          let int = z+1;
+          while (!gasSeparate && int < blocksThisSale.length || gasSeparate && int < blocksThisSale.length - 1) {
+            if (blocksThisSale[z][0] === blocksThisSale[int][0] && blocksThisSale[z][1] === blocksThisSale[int][1]) {
+              if (blocksThisSale[z][5] === undefined && blocksThisSale[int][5] === undefined || blocksThisSale[z][5] !== undefined && blocksThisSale[int][5] !== undefined) {
+                blocksThisSale[z][2] = bigDecimal(blocksThisSale[z][2], blocksThisSale[int][2], 'add');
+                blocksThisSale[z][3] = bigDecimal(blocksThisSale[z][3], blocksThisSale[int][3], 'add');
+                if (blocksThisSale[z][5] !== undefined) {
+                  blocksThisSale[z][5] = bigDecimal(blocksThisSale[z][5], blocksThisSale[int][5], 'add');
+                }
+                blocksThisSale.splice(int, 1)
+                int--;
+              }
+            }
+            int++;
+          }
+        }
+
+        if (totalWashed !== undefined) {
+          let totalProfit = bigDecimal(proceeds, sellingFee, 'sub');
+          let totalProfitRounded = '0';
+          let lastBlockWashed;
+          for (let cc = 0; cc < blocksThisSale.length; cc++) {
+            if (blocksThisSale[cc][5] !== undefined) {
+              blocksThisSale[cc][3] = convertToCurrency(blocksThisSale[cc][3])
+              blocksThisSale[cc][5] = convertToCurrency(blocksThisSale[cc][5])
+              if (cc === blocksThisSale.length - 1 && gasSeparate) {
+              } else {
+                let profit = convertToCurrency(bigDecimal(bigDecimal(blocksThisSale[cc][2], amountSold, 'div'), totalProfit, 'mult'));
+                totalProfitRounded = bigDecimal(totalProfitRounded, profit, 'add');
+                let loss = bigDecimal(blocksThisSale[cc][3], profit, 'sub');
+                let washRoundingError = bigDecimal(blocksThisSale[cc][5], loss, 'sub');
+                if (washRoundingError.toString() !== '0') {
+                  blocksThisSale[cc][5] = loss;
+                }
+                lastBlockWashed = cc;
+              }
+            }  
+          } 
+
+          let profitError = bigDecimal(totalProfit, totalProfitRounded, 'sub');
+          if (lastBlockWashed !== undefined) {
+            blocksThisSale[lastBlockWashed][5] = convertToCurrency(bigDecimal(blocksThisSale[lastBlockWashed][5], profitError, 'sub'))
+          }
+        }
+        
+        
+        if (blocksThisSale.length === 1) {
+          thisYearData[currentRow][9] = blocksThisSale[0][0];
+        } else {
+          thisYearData[currentRow][9] = 'VARIOUS';
+        }
+
+        if (!observeWash) {
+          for (let x = 0; x < blocksThisSale.length; x++) {
+            dateAcquiredNote = dateAcquiredNote + blocksThisSale[x][0] + ': ' + leadingZero(bigRound(blocksThisSale[x][2])) + ' ' + coin + '\nCOST BASIS: $' + convertToCurrency(blocksThisSale[x][3]) + '_\n\n';
+          }
+        } else {
+          for (let y = 0; y < blocksThisSale.length; y++) {
+            if (blocksThisSale[y][5] === undefined) {
+              dateAcquiredNote = dateAcquiredNote + blocksThisSale[y][0] + ': ' + leadingZero(bigRound(blocksThisSale[y][2])) + ' ' + coin + '\nCOST BASIS: $' + convertToCurrency(blocksThisSale[y][3]) + '\nHOLDING PERIOD: ' + blocksThisSale[y][1] + '_\n\n';
+            } else {
+              dateAcquiredNote = dateAcquiredNote + blocksThisSale[y][0] + ': ' + leadingZero(bigRound(blocksThisSale[y][2])) + ' ' + coin + '\nCOST BASIS: $' + convertToCurrency(blocksThisSale[y][3]) + '\nHOLDING PERIOD: ' + blocksThisSale[y][1] + '\nWASH: $' + blocksThisSale[y][5] + '_\n\n';
+            }
+          }
+        }
+        thisYearNotes[currentRow][9] = dateAcquiredNote;
+        if (thisYearNotes[currentRow][9] === '') {
+          thisYearData[currentRow][9] = '-'
+        }
+        thisYearNotes[currentRow][22] = JSON.stringify(coinArray);  
+      }
+
+
+      //******************************************************************************** CALCULATE WASH ********************************************************************************
+      function calculateWash() {
+        let sellDate = thisYearData[currentRow][10];
+        let flagForWash = [];
+        let holdingPeriods = [];
+        findFlagForWash();
+        //Logger.log(soldRows);
+        //Logger.log(flagForWash);
+        //Logger.log(blocksThisSale);
+        
+        if (flagForWash.length === 0) {
+        } else if (flagForWash[flagForWash.length-1] > soldRows[0]) {
+          let totalCoinToWash = '0';
+          let totalLossToWash = '0';
+          
+          let proceedsPerCoin = bigDecimal(bigDecimal(proceeds, sellingFee, 'sub'), amountSold, 'div');
+          for (let v = 0; v < blocksThisSale.length; v++) {
+            let valueThisBlock = bigDecimal(blocksThisSale[v][3], blocksThisSale[v][2], 'div');
+
+            if (gasInSale && gasWashable && v === blocksThisSale.length - 1) {
+              proceedsPerCoin = bigDecimal(proceedsFromGas, gasFee, 'div');
+            }
+            if (bigDecimal(proceedsPerCoin, valueThisBlock, 'compare') === 'less') {
+              let lossThisBlock = bigDecimal(blocksThisSale[v][3], bigDecimal(proceedsPerCoin, blocksThisSale[v][2], 'mult', 18), 'sub');
+
+              totalCoinToWash = bigDecimal(totalCoinToWash, blocksThisSale[v][2], 'add');
+              totalLossToWash = bigDecimal(totalLossToWash, lossThisBlock, 'add');
+              blocksThisSale[v].push(lossThisBlock);
+              holdingPeriods.push([blocksThisSale[v][1], blocksThisSale[v][2]]);
+            }
+          }
+          let amountToWash = totalCoinToWash;
+          totalLossToWash = totalWashed = convertToCurrency(totalLossToWash);
+            
+          if (Number(totalCoinToWash) > 0) {
+            for (q = 0; q < flagForWash.length; q++) {
+              if (allData[flagForWash[q]][4] < sellDate) {
+                let checkWashExchange = allData[flagForWash[q]][5];
+                let checkWashCoin = allData[flagForWash[q]][1];
+                let exchangeWashIndex;
+                let coinWashIndex;
+                let purchaseWashIndex;
+                let fullIndex;
+                for (let r = 0; r < coinArray.length; r++) {
+                  if (coinArray[r][0] === checkWashExchange) {
+                    exchangeWashIndex = r;
+                  }
+                  if (coinArray[exchangeWashIndex] !== undefined) {
+                    for (let s = 0; s < coinArray[exchangeWashIndex].length; s++) {
+                      if (coinArray[exchangeWashIndex][s][0] === checkWashCoin) {
+                        coinWashIndex = s;
+                      }
+                    }
+                    if (coinArray[exchangeWashIndex][coinWashIndex] !== undefined) {
+                      for (let t = 1; t < coinArray[exchangeWashIndex][coinWashIndex].length; t++) {
+                        if (coinArray[exchangeWashIndex][coinWashIndex][t][4] === flagForWash[q] && coinArray[exchangeWashIndex][coinWashIndex][t][5] === undefined) {
+                          purchaseWashIndex = t;
+                          fullIndex = coinArray[exchangeWashIndex][coinWashIndex][t];
+                        }
+                      }
+                    }
+                  }
+                }
+
+                if (fullIndex !== undefined) {
+                  let thisPurchaseAmount = fullIndex[0];
+          
+                  if (bigDecimal(amountToWash, thisPurchaseAmount, 'compare') === 'less') {
+                    let fullIndexPlusOne = fullIndex.slice(0)
+                    coinArray[exchangeWashIndex][coinWashIndex].splice(purchaseWashIndex+1,0,fullIndexPlusOne);
+                    fullIndexPlusOne = coinArray[exchangeWashIndex][coinWashIndex][purchaseWashIndex+1];
+                    let amount = amountToWash;
+                    let marketValue = bigDecimal(fullIndex[2], bigDecimal(amount,thisPurchaseAmount, 'div') , 'mult', 18);
+                    let costBasis = bigDecimal(fullIndex[3], bigDecimal(amount,thisPurchaseAmount, 'div') , 'mult', 18);
+                    let addToCostBasis = bigDecimal(totalLossToWash, bigDecimal(amount, totalCoinToWash, 'div'), 'mult', 18);
+
+                    fullIndex[0] = amount;
+                    fullIndex[2] = marketValue;
+                    fullIndex[3] = costBasis;
+                    fullIndexPlusOne[0] = bigDecimal(fullIndexPlusOne[0], fullIndex[0], 'sub');
+                    fullIndexPlusOne[2] = bigDecimal(fullIndexPlusOne[2], fullIndex[2], 'sub');
+                    fullIndexPlusOne[3] = bigDecimal(fullIndexPlusOne[3], fullIndex[3], 'sub');
+                    fullIndex[3] = bigDecimal(fullIndex[3], addToCostBasis, 'add');
+
+                    if (Number(fullIndexPlusOne[0]) === 0) {
+                      coinArray[exchangeWashIndex][coinWashIndex].splice(purchaseWashIndex+1,1)
+                    } 
+                    amountToWash = '0';
+                  } else {
+                    amountToWash = bigDecimal(amountToWash, thisPurchaseAmount,'sub');
+                    fullIndex[3] = bigDecimal(fullIndex[3], bigDecimal(totalLossToWash, bigDecimal(thisPurchaseAmount, totalCoinToWash, 'div'), 'mult', 18), 'add');
+                  }
+                  while (Number(thisPurchaseAmount) > 0) {
+                    fullIndex = coinArray[exchangeWashIndex][coinWashIndex][purchaseWashIndex];
+                    thisPurchaseAmount = fullIndex[0];
+                    
+                    if (holdingPeriods.length === 0) {
+                      break;
+                    }
+                    
+                    if (bigDecimal(holdingPeriods[0][1], thisPurchaseAmount, 'compare') === 'less') {
+                      let fullIndexPlusOne = fullIndex.slice(0);
+                      coinArray[exchangeWashIndex][coinWashIndex].splice(purchaseWashIndex+1,0,fullIndexPlusOne);
+                      fullIndexPlusOne = coinArray[exchangeWashIndex][coinWashIndex][purchaseWashIndex+1];
+                      let amount = holdingPeriods[0][1];
+                      let marketValue = bigDecimal(fullIndex[2], bigDecimal(amount, thisPurchaseAmount, 'div') , 'mult', 18);
+                      let costBasis = bigDecimal(fullIndex[3], bigDecimal(amount, thisPurchaseAmount, 'div') , 'mult', 18);
+
+                      fullIndex[0] = amount;
+                      fullIndex[2] = marketValue;
+                      fullIndex[3] = costBasis;
+                      fullIndex.push(holdingPeriods[0][0]);
+                      fullIndexPlusOne[0] = bigDecimal(fullIndexPlusOne[0], fullIndex[0], 'sub');
+                      fullIndexPlusOne[2] = bigDecimal(fullIndexPlusOne[2], fullIndex[2], 'sub');
+                      fullIndexPlusOne[3] = bigDecimal(fullIndexPlusOne[3], fullIndex[3], 'sub');
+
+                      if (bigDecimal(fullIndexPlusOne[0], '0.000000000000000001', 'compare') === 'less') {
+                        coinArray[exchangeWashIndex][coinWashIndex].splice(purchaseWashIndex+1,1)
+                      } 
+                      thisPurchaseAmount = bigDecimal(thisPurchaseAmount, holdingPeriods[0][1], 'sub'); 
+                      holdingPeriods.shift();
+                      purchaseWashIndex++;
+                    } else {
+                      fullIndex.push(holdingPeriods[0][0]);
+                      holdingPeriods[0][1] = bigDecimal(holdingPeriods[0][1], thisPurchaseAmount, 'sub'); 
+                      thisPurchaseAmount = '0';
+                      if (Number(holdingPeriods[0][1]) === 0) {
+                        holdingPeriods.shift();
+                      }
+                    }
+                  }
+                }
+              } else if (allData[flagForWash[q]][4] > sellDate && Number(amountToWash) !== 0){
+                let futurePurchaseAmount = allData[flagForWash[q]][0].toString();
+                let sumInWashSales = '0';
+                for (let u = 0; u < washSales.length; u++) {
+                  if (washSales[u][0] === flagForWash[q]) {
+                    sumInWashSales = bigDecimal(sumInWashSales, washSales[u][1], 'add');
+                  }
+                }
+                futurePurchaseAmount = bigDecimal(futurePurchaseAmount, sumInWashSales,'sub');
+
+                if (Number(futurePurchaseAmount) > 0) {
+                  let addToFutureCostBasis = '0';
+                  if (bigDecimal(amountToWash, futurePurchaseAmount, 'compare') === 'less') {
+                    addToFutureCostBasis = bigDecimal(totalLossToWash, bigDecimal(amountToWash, totalCoinToWash, 'div'), 'mult', 18);  
+                    washSales.push([flagForWash[q], amountToWash, addToFutureCostBasis]);
+                    amountToWash = '0';
+                  } else {
+                    addToFutureCostBasis = bigDecimal(totalLossToWash, bigDecimal(futurePurchaseAmount, totalCoinToWash, 'div'), 'mult', 18);
+                    amountToWash = bigDecimal(amountToWash, futurePurchaseAmount, 'sub');
+                    washSales.push([flagForWash[q], futurePurchaseAmount, addToFutureCostBasis]);
+                  }
+                }
+                while (Number(futurePurchaseAmount) > 0) {
+                  let futurePurchase = washSales[washSales.length-1];
+                  futurePurchaseAmount = futurePurchase[1];
+
+                  if (holdingPeriods.length === 0) {
+                    break;
+                  }
+
+                  if (bigDecimal(holdingPeriods[0][1], futurePurchaseAmount, 'compare') === 'less') {
+                    let futurePurchasePlusOne = futurePurchase.slice(0)
+                    washSales.push(futurePurchasePlusOne)
+                    futurePurchasePlusOne = washSales[washSales.length-1];
+                    let amount = holdingPeriods[0][1];
+                    let costBasis = bigDecimal(futurePurchase[2], bigDecimal(amount, futurePurchaseAmount, 'div'), 'mult', 18);
+
+                    futurePurchase[1] = amount;
+                    futurePurchase[2] = costBasis;
+                    futurePurchase.push(holdingPeriods[0][0]);
+                    futurePurchasePlusOne[1] = bigDecimal(futurePurchasePlusOne[1], futurePurchase[1], 'sub');
+                    futurePurchasePlusOne[2] = bigDecimal(futurePurchasePlusOne[2], futurePurchase[2], 'sub');
+
+                    if (bigDecimal(futurePurchasePlusOne[1], '0.000000000000000001', 'compare') === 'less') {
+                      washSales.pop();
+                    } 
+                    futurePurchaseAmount = bigDecimal(futurePurchaseAmount, holdingPeriods[0][1], 'sub'); 
+                    holdingPeriods.shift();
+                  } else {
+                    futurePurchase.push(holdingPeriods[0][0]);
+                    holdingPeriods[0][1] = bigDecimal(holdingPeriods[0][1], futurePurchaseAmount, 'sub'); 
+                    futurePurchaseAmount = '0';
+                    if (Number(holdingPeriods[0][1]) === 0) {
+                      holdingPeriods.shift();
+                    }
+                  }
+                }
+              }
+              if (bigDecimal(amountToWash, '0.000000000000000001', 'compare') === 'less') {
+                break;
+              }
+            }
+            let washOffset;
+            if (bigDecimal(amountToWash, '0.000000000000000001', 'compare') === 'less') {
+              washOffset = totalLossToWash;
+            } else {
+              washOffset = bigDecimal(totalLossToWash, bigDecimal(totalLossToWash, bigDecimal(amountToWash, totalCoinToWash, 'div'), 'mult', 18), 'sub');
+            }
+            if (Number(washOffset) !== 0) {
+              thisYearData[currentRow][17] = bigDecimal(thisYearData[currentRow][17], washOffset, 'add', 2);
+              thisYearNotes[currentRow][17] = thisYearNotes[currentRow][17] + 'WASH: $' + convertToCurrency(washOffset);
+            } 
+          }
+        }
+        //Logger.log(washSales)
+        //Logger.log(blocksThisSale);
+        
+        //Flags BUYs from all transactions into flagForWash to be  processed; if BUY is within 30 days before sale, omits rows that were part of the sale 
+        //as these coins are not replacements
+        function findFlagForWash() {
+          function daysIntoYear(date) {
+            return (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())) / 24 / 60 / 60 / 1000;
+          } 
+          let convertedSellDate = daysIntoYear(sellDate);
+            
+          let washTransactionType;
+          let startFlagSearch = currentRow + startingRow - 4;
+          for (n = startFlagSearch - 1; n >= 0; n--) {
+            washTransactionType = allData[n][2];
+            if (washTransactionType === 'BUY') {
+              let buyDate = allData[n][4];
+              buyDate = daysIntoYear(buyDate);
+              if ((convertedSellDate - buyDate) <= 30) {
+                if (thisYearData[currentRow][1] === allData[n][1]) {
+                  let checkIfSold = soldRows.indexOf(n);
+                  if (checkIfSold === -1) {
+                    flagForWash.push(n);
+                  }
+                }
+              } else if ((convertedSellDate - buyDate) > 30) {
+                break;
+              }
+            }
+          }
+          for (o = startFlagSearch + 1; o < allData.length; o++) {
+            washTransactionType = allData[o][2];
+            if (washTransactionType === 'BUY') {
+              let buyDate = allData[o][4];
+              buyDate = daysIntoYear(buyDate);
+              if ((buyDate - convertedSellDate) <= 30 && thisYearData[currentRow][1] === allData[o][1]) {
+                flagForWash.push(o); //will need to be adjusted with start date
+              } else if ((buyDate - convertedSellDate) > 30) {
+                break;
+              }
+            }
+          }
+          flagForWash.sort(function(a, b){return a - b});
+        }
+      }
+    }
+  }
+
+
+
+
+
+  // Goes through exchanges's coin(s) and their amounts, sums these amounts together, then writes and formats the values on MAIN PAGE
+  function setWallet() {
+    mainPage.getRange('K7:Z1000').clear().clearFormat().breakApart().clearNote().setFontSize('10').setFontColor('black').setFontWeight('normal').setFontStyle('normal').setHorizontalAlignment('center').setVerticalAlignment('middle').setDataValidation(null);
+    let wallet = [];
+    for (let i = 0; i < coinArray.length; i++) {
+      for (let j = 1; j < coinArray[i].length; j++) {
+        let coin = coinArray[i][j][0];
+        let coinIndex;
+        for (let k = 0; k < wallet.length; k++) {
+          if (wallet[k][0] === coin) {
+            coinIndex = k;
+          }
+        }
+        if (coinIndex === undefined) {
+          let addCoin = [coin, '0'];
+          wallet.push(addCoin)
+          coinIndex = wallet.length - 1;
+        }
+        for (let l = 1; l < coinArray[i][j].length; l++) {
+          wallet[coinIndex][1] =  bigDecimal(wallet[coinIndex][1], coinArray[i][j][l][0], 'add');
+        }
+      }
+    }
+    for (let m = 0; m < wallet.length; m++) {
+      wallet[m][1] = bigRound(wallet[m][1]);
+      let walletAmountDecimal = wallet[m][1].split('.').concat('');
+      if (walletAmountDecimal[1].length > 18) {
+        wallet[m][1] = walletAmountDecimal[0] + '.' + walletAmountDecimal[1].slice(0,18);
+      }
+    }
+    if (wallet[0] !== undefined) {
+      mainPage.getRange(7,11, wallet.length, 2).setValues(wallet).setBorder(true, true, true, true, null, null, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBorder(null, null, null, null, null, true, 'black', SpreadsheetApp.BorderStyle.SOLID);
+    }
+    
+    let lastDatesThisYear = [thisYearData[thisYearData.length-1][4], thisYearData[thisYearData.length-1][10]];
+    if (lastDatesThisYear[0] === '') {
+      lastDatesThisYear.shift();
+    } else {
+      lastDatesThisYear.pop();
+    }
+    
+    lastDatesThisYear = Utilities.formatDate(lastDatesThisYear[0], activeSheet.getSpreadsheetTimeZone(), "MM/dd/yyyy");
+    let asOfString = '(as of ' + lastDatesThisYear + ')';
+    mainPage.getRange('K2').setNote(asOfString).setValue('YOUR WALLET\n' + asOfString);
+  }
+}

@@ -1,0 +1,31 @@
+// Runs through each of the dates in the TRANSACTIONS sheet and adds them to a drop down in MAIN PAGE
+
+function addingYears() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+
+  let yearDropDown = [];
+  if (transactions !== null) {
+    let rows = transactions.getMaxRows();
+    let values = transactions.getRange(4,11,rows-3,1).getValues();
+    
+    for (let i = 0; i < values.length; i++) {
+      let checkYear = values[i][0];
+      if (checkYear !== '') {
+        checkYear = checkYear.getFullYear();
+        for (let j = 0; j <= yearDropDown.length; j++) {
+          if (checkYear === yearDropDown[j]) {
+            break;
+          } else if (j === yearDropDown.length) {
+            yearDropDown.push(checkYear);
+            break;
+          }
+        }
+      }
+    }
+  }
+  yearDropDown.sort().reverse();
+  let rangeRule = SpreadsheetApp.newDataValidation().requireValueInList(yearDropDown);
+  mainPage.getRange('H28').setDataValidation(rangeRule);
+}

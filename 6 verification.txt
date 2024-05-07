@@ -1,0 +1,114 @@
+function verifySort() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+
+  // Compresses DATE & TIME ACQUIRED and DATE & TIME SOLD OR TRADED into one element per row of data
+  let rows = transactions.getMaxRows();
+  let allData = transactions.getRange(4,1,rows-3,22).getValues();
+  let values = transactions.getRange(4,5,rows-3,7).getValues();
+  let dates = [];
+  for (let i = 0; i<values.length; i++) {
+    values[i].splice(1,5);
+    if (values[i][0] === '' && values[i][1] === '') {
+      values[i].shift();
+    } else if (values[i][0] === '') {
+      values[i].shift();
+    } else {
+      values[i].pop();
+    }
+    dates.push(values[i][0]);
+  }
+
+  //Loops through dates to verify everything is sorted.
+  //Also, sets startingRow, numberOfRows to process, and lastRow with data in the sheet if year is selected; otherwise, entire sheet's data range is selected.
+  let error, rowYear, numberOfRows, lastRow, currentDate;
+  let sorted = true;
+  let year = mainPage.getRange('H28').getValue();
+  let rowOffset = 4;
+  let startingRow = rowOffset;
+  let startingRowSet = false;
+  let numberOfRowsSet = false;
+  let previousDate = dates[0];
+  if (previousDate.getFullYear() === year || year === '') {
+    startingRowSet = true;
+  }
+  let row = 1;
+  for (row; row < dates.length; row++) {
+    lastRow = row + rowOffset;
+    currentDate = dates[row];
+    if (year !== '' && !numberOfRowsSet) {
+      if (currentDate !== '') {
+        rowYear = currentDate.getFullYear();
+      } 
+      if (year === rowYear && !startingRowSet) {
+        startingRow = row + rowOffset;
+        startingRowSet = true;
+      }
+      if (year !== rowYear && startingRowSet && !numberOfRowsSet) {
+        numberOfRows = lastRow - startingRow;
+        numberOfRowsSet = true;
+      }
+    }
+    if (currentDate < previousDate && currentDate !== '') {
+      sorted = false;
+      error = 'TRANSACTIONS is not sorted. Please use the SORT CHRONOLOGICALLY algorithm prior to processing TRANSACTIONS.';
+      break;
+    } else if (currentDate === '') {
+      lastRow -= 1; 
+      break;
+    }
+    previousDate = currentDate;
+  }
+
+  //Clean-up stuff. If numberOfRows is not set, set to equation below.
+  //Also, it is possible for there to be blank rows between rows with data which can cause problems. Outputs error if this occurs.
+  if (!numberOfRowsSet) {
+    numberOfRows = lastRow - startingRow + 1;
+  }
+  if (row < dates.length - 1 && currentDate === '') {
+    for (let j = row; j < dates.length; j++) {
+      currentDate = dates[j];
+      if (currentDate !== '') {
+        sorted = false;
+        error = 'TRANSACTIONS is not sorted. Please use the SORT CHRONOLOGICALLY prior to processing TRANSACTIONS.';
+        break;
+      }
+    }
+  }
+  
+  let output = [sorted, error, startingRow, numberOfRows, lastRow];
+  Logger.log('INITIALIZATION\t\t' + JSON.stringify(output));
+  return output;
+} 
+
+
+
+
+function getCoinArray(startingRow) {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let storedCoinArray;
+
+  let rowOffset = 4;
+  startingRow = startingRow - (rowOffset - 1);
+  let allStored = transactions.getRange(4,23,startingRow, 1).getNotes();
+  let year = mainPage.getRange('H28').getValue();
+  for (let i = allStored.length - 1; i >= 0; i--) {  
+    if (year == '') {
+      storedCoinArray = [JSON.stringify([]), rowOffset];
+      break;
+    }
+    if (allStored[i][0] !== '') {
+      storedCoinArray = [allStored[i], (i + rowOffset + 1)];
+      break;
+    } 
+    if (i === 0 && storedCoinArray === undefined) {
+      storedCoinArray = [JSON.stringify([]), rowOffset];
+    }
+  }
+
+  Logger.log('PREVIOUS COINARRAY\t[' + storedCoinArray + ']')
+  return storedCoinArray;
+}

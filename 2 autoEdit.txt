@@ -1,0 +1,208 @@
+/* Function requires a trigger to open to be utilized to its fullest. */
+
+function autoEdit() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let currentSheet = activeSheet.getActiveSheet().getName();
+  let status = mainPage.getRange('G32');
+  let checkCalculate = mainPage.getRange('I28');
+  let check;
+
+  if (currentSheet === 'MAIN PAGE') { 
+    // Once CALCULATE is checked, checks which algorithms are checked and runs in order
+    if (checkCalculate.isChecked()) {
+      if (mainPage.getRange('B27').isChecked()) {
+        status.setValue('SORTING...').setFontWeight('bold').setFontSize(26);
+        try {
+          sortTransactions();
+        } catch {
+          status.setValue('FAILURE...').setFontWeight('bold').setFontSize(26);
+        }
+      }
+      if (mainPage.getRange('B28').isChecked()) {
+        status.setValue('ANALYZING...').setFontWeight('bold').setFontSize(26);
+        try {
+          analyzeTransactions();
+        } catch {
+          status.setValue('FAILURE...').setFontWeight('bold').setFontSize(26);
+        }
+      }
+      if (mainPage.getRange('B29').isChecked()) {
+        status.setValue('CREATING DOC...').setFontWeight('bold').setFontSize(26);
+        try {
+          create8949();
+        } catch {
+          status.setValue('FAILURE...').setFontWeight('bold').setFontSize(26);
+        }
+      }
+      if (status.getValue() !== 'FAILURE...') {
+        mainPage.activate();
+        status.setValue('SUCCESS!').setFontWeight('bold').setFontSize(26);
+      }
+      checkCalculate.uncheck();
+    }
+
+    // This mumbo-jumbo gives users the ability to limit which rows in TRANSACTIONS can be repaired once they exceed 20000 lines
+    let checkRepair = mainPage.getRange('B32');
+    if (checkRepair.isChecked()) {
+      if (transactions.getMaxRows() > 20000) {
+        let startingRow;
+        let endingRow;
+        let helptext = 'Please enter the starting row number:';
+        let ui = SpreadsheetApp.getUi();
+        let response1 = ui.alert('Repair the entire TRANSACTIONS sheet?', 'This is not recommended for over 20000 lines', ui.ButtonSet.YES_NO);
+        if (response1 == ui.Button.YES) {
+          fixFormat('-','-','TRANSACTIONS');
+        } else {
+          getStartingRow();
+          getEndingRow();
+          fixFormat(startingRow, endingRow, 'TRANSACTIONS');
+        }
+        
+        function getStartingRow() {
+          let response2 = ui.prompt(helptext);
+          if (response2.getSelectedButton() === ui.Button.OK) {
+            startingRow = parseInt(response2.getResponseText());
+            if (isNaN(startingRow)) {
+              helptext = 'Please enter a valid number:';
+              getStartingRow();
+            } else if (startingRow < 4) {
+              helptext = 'The value cannot be less than 4. Please select a different value:';
+              getStartingRow();
+            } else if (startingRow > transactions.getMaxRows()) {
+              helptext = 'The value cannot exceed ' + transactions.getMaxRows() + '. Please select a different value:';
+              getStartingRow();
+            } else {
+              helptext = 'Please enter the ending row number:'
+            }
+          }
+        }
+        function getEndingRow() {
+          let title = 'The starting row you have selected is ' + startingRow + '.';
+          let response3 = ui.prompt(title + '\n \n' + helptext);
+          if (response3.getSelectedButton() === ui.Button.OK) {
+            endingRow = parseInt(response3.getResponseText());
+            if (isNaN(endingRow)) {
+              helptext = 'Please enter a valid number';
+              getEndingRow();
+            } else if (endingRow > transactions.getMaxRows()) {
+              helptext = 'The value cannot exceed ' + transactions.getMaxRows() + '. Please select a different value:';
+              getStartingRow();
+            } else if (endingRow < startingRow){
+              helptext = 'The ending row cannot be less than the starting row. Please select a different value:'
+              getEndingRow();
+            } else if ((endingRow - startingRow) > 20000){
+              helptext = 'The number of selected rows exceeds the 20000 row maximum. Please select a different value:'
+              getEndingRow();
+            }
+          }
+        }
+      } else {
+        fixFormat('-','-','TRANSACTIONS');
+      }
+      status.setValue('REPAIRED!');
+      checkRepair.uncheck();  
+    }
+
+    //Makes only one option checked where applicable
+    let currentCell = mainPage.getActiveCell().getA1Notation();
+    let sell = ['D7','E7', 'F7', 'G7', 'H7', 'I7'];
+    if (sell.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      sell.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let trade = ['D8','E8', 'F8', 'G8', 'H8', 'I8'];
+    if (trade.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      trade.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let swap = ['D9','E9', 'F9', 'G9', 'H9', 'I9'];
+    if (swap.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      swap.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let transfer = ['D10','E10', 'F10', 'G10', 'H10', 'I10'];
+    if (transfer.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      transfer.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let gift = ['D11','E11', 'F11', 'G11', 'H11', 'I11'];
+    if (gift.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      gift.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let donate = ['D12','E12', 'F12', 'G12', 'H12', 'I12'];
+    if (donate.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      donate.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+    let wash = ['E27', 'E28'];
+    if (wash.includes(currentCell) && mainPage.getRange(currentCell).isChecked()) {
+      wash.filter(val=>val!=currentCell).forEach(c=>mainPage.getRange(c).uncheck());
+    }
+  }
+
+
+
+
+
+  if (currentSheet === 'TRANSACTIONS') {
+    let currentCell = transactions.getActiveCell();
+    let value = currentCell.getValue();
+    if (typeof value === 'string') {
+      value = value.toUpperCase();
+      currentCell.setValue(value);
+    }
+
+    // These checks are for individual cells for guiding data entry when selecting transaction type and for dynamically adding years to MAIN PAGE
+    let currentCellRow = currentCell.getRow();
+    let currentCellCol = currentCell.getColumn();
+    if (currentCellCol === 3 && currentCellRow > 1) {
+      let methodRule = SpreadsheetApp.newDataValidation().requireValueInList(['FIFO', 'LIFO', 'HIFO']);
+      check = transactions.getRange(currentCellRow ,3).getValue();
+      if (check === "BUY") {
+        transactions.getRange(currentCellRow, 13,1 , 1).setDataValidation(null);
+        transactions.getRange(currentCellRow, 5, 1, 4).setBackground('white').setFontColor('black');
+        transactions.getRange(currentCellRow, 10, 1, 9).setBackground('#8b8b8b').setFontColor('#8b8b8b');
+        transactions.getRange(currentCellRow, 19, 1, 1).setBackground('white').setFontColor('black');
+        transactions.getRange(currentCellRow, 20, 1, 3).setBackground('#8b8b8b').setFontColor('#8b8b8b');
+      } else if (check === "SELL") {
+        transactions.getRange(currentCellRow, 13).setDataValidation(methodRule);
+        transactions.getRange(currentCellRow, 5, 1, 4).setBackground('#8b8b8b').setFontColor('#8b8b8b');
+        transactions.getRange(currentCellRow, 10, 1, 10).setBackground('white').setFontColor('black');
+        transactions.getRange(currentCellRow, 20, 1, 3).setBackground('#8b8b8b').setFontColor('#8b8b8b');
+      } else if (check === "") {
+        transactions.getRange(currentCellRow, 13).setDataValidation(methodRule);
+        transactions.getRange(currentCellRow, 5, 1, 18).setBackground('white').setFontColor('black');
+      } else {
+        transactions.getRange(currentCellRow, 13).setDataValidation(methodRule);
+        transactions.getRange(currentCellRow, 5, 1, 4).setBackground('#8b8b8b').setFontColor('#8b8b8b');
+        transactions.getRange(currentCellRow, 10, 1, 14).setBackground('white').setFontColor('black');
+      }
+    }
+
+    if (currentCellCol === 5 && currentCellRow > 1) {
+      transactions.getRange(currentCellRow,5).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+    }
+    if (currentCellCol === 10 && currentCellRow > 1) {
+      transactions.getRange(currentCellRow,10).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+    }
+
+    if (currentCellCol === 11 && currentCellRow > 1) {
+      transactions.getRange(currentCellRow,11).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+
+      let yearDropDown = mainPage.getRange('D12').getDataValidation().getCriteriaValues();
+      yearDropDown = yearDropDown[0];
+      let checkYear = transactions.getRange(currentCellRow, 11).getValue();
+      if (checkYear !== '') {
+        checkYear = checkYear.getFullYear();
+        for (let j = 0; j <= yearDropDown.length; j++) {
+          if (checkYear === yearDropDown[j]) {
+            break;
+          } else if (j === yearDropDown.length) {
+            yearDropDown.push(checkYear);
+            break;
+          }
+        }
+      }
+      yearDropDown.sort().reverse();
+      let rangeRule = SpreadsheetApp.newDataValidation().requireValueInList(yearDropDown);
+      mainPage.getRange('D12').setDataValidation(rangeRule).setHorizontalAlignment('center').setVerticalAlignment('middle');
+    }
+  }
+}

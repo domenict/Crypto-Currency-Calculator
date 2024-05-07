@@ -1,0 +1,311 @@
+// Used in TRANSACTIONS to clean up decimal places without a leading zero
+function leadingZero(string) {
+  string = string.toString()
+  if (Number(string) < 1) {
+    return '0.' + string.split('.')[1];
+  } else if (string.split('.')[1] === undefined) {
+    return string + '.0'
+  } else {
+    return string;
+  }
+}
+
+function fixFormat(a, b, thisSheet) {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let status = mainPage.getRange('G32');
+  let checkboxes = mainPage.getRangeList(['D7:I12','B18:B19','E18:E19','H18:H19', 'B27', 'B28', 'B29', 'E27', 'E28', 'I28', 'B32'])
+  mainPageFormatting();
+  transactionsFormatting(a,b, thisSheet);
+  addingYears();
+  mainPage.activate();
+  status.setValue('').setFontWeight('bold').setFontSize(26);
+
+
+  function mainPageFormatting() {
+    let maxRows = mainPage.getMaxRows();
+    let maxCol = mainPage.getMaxColumns();
+    let storeSettings = mainPage.getRange('A7:I29').getValues();
+
+    //Determines last row value for YOUR WALLET and stores values
+    let lastMainPageRow = 7;
+    for (lastMainPageRow; lastMainPageRow <= maxRows; lastMainPageRow++) {
+      let coin = Boolean(mainPage.getRange('K' + lastMainPageRow).isBlank());
+      let amount = Boolean(mainPage.getRange('L' + lastMainPageRow).isBlank());
+      if (coin && amount) {
+        lastMainPageRow--
+        break;
+      }
+    }
+    let storeWallet;
+    if (lastMainPageRow > 6) {
+      storeWallet = mainPage.getRange('K7:L' + lastMainPageRow).getValues();
+    }
+    let storeWalletDate = mainPage.getRange('K2').getNote();
+    
+    //Clears everything in MAIN PAGE and sets LOADING first
+    mainPage.getRange(1,1,maxRows,maxCol).clear().clearFormat().breakApart().clearNote().setFontSize('10').setFontColor('black').setFontWeight('normal').setFontStyle('normal').setHorizontalAlignment('center').setVerticalAlignment('middle').setDataValidation(null);
+    mainPage.getRange('G32:I33').merge().setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setHorizontalAlignment('center').setVerticalAlignment('middle').setBackground('#fafafa');
+    status.setValue('LOADING...').setFontWeight('bold').setFontSize(26);
+
+    //Sets all cell widths and heights
+    mainPage.setColumnWidths(1,26,100);
+    mainPage.setColumnWidth(2, 65);
+    mainPage.setColumnWidth(3, 85);
+    mainPage.setColumnWidth(4, 120);
+    mainPage.setColumnWidth(5, 65);
+    mainPage.setColumnWidth(6, 65);
+    mainPage.setColumnWidth(7, 120);
+    mainPage.setColumnWidth(8, 65);
+    mainPage.setColumnWidth(9, 110);
+    mainPage.setColumnWidth(10, 40);
+    mainPage.setColumnWidth(11, 65);
+    mainPage.setColumnWidth(12, 160);
+    mainPage.setRowHeights(1,50,20);
+
+    //Sets GAS FEES
+    mainPage.getRange('B2:I4').merge().setValue('GAS FEES').setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    mainPage.getRange('B5:I6').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#fafafa');
+    mainPage.getRange('B7:I12').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    mainPage.getRange('B5:C6').merge().setValue('TRANSACTION TYPE');
+    mainPage.getRange('D5:D6').merge().setValue('CAPITAL GAIN');
+    mainPage.getRange('E5:F6').merge().setValue('NEUTRAL LOSS');
+    mainPage.getRange('G5:G6').merge().setValue('CAPITAL LOSS');
+    mainPage.getRange('H5:I6').merge().setValue('ADD TO COST BASIS');
+    mainPage.getRange('B7:C7').mergeAcross().setValue('SELL');
+    mainPage.getRange('B8:C8').mergeAcross().setValue('TRADE');
+    mainPage.getRange('B9:C9').mergeAcross().setValue('SWAP');
+    mainPage.getRange('B10:C10').mergeAcross().setValue('TRANSFER');
+    mainPage.getRange('B11:C11').mergeAcross().setValue('GIFT');
+    mainPage.getRange('B12:C12').mergeAcross().setValue('DONATE');
+    mainPage.getRange('E7:F7').mergeAcross();
+    mainPage.getRange('E8:F8').mergeAcross();
+    mainPage.getRange('E9:F9').mergeAcross();
+    mainPage.getRange('E10:F10').mergeAcross();
+    mainPage.getRange('E11:F11').mergeAcross();
+    mainPage.getRange('E12:F12').mergeAcross();
+    mainPage.getRange('H7:I7').mergeAcross();
+    mainPage.getRange('H8:I8').mergeAcross();
+    mainPage.getRange('H9:I9').mergeAcross();
+    mainPage.getRange('H10:I10').mergeAcross();
+    mainPage.getRange('H11:I11').mergeAcross();
+    mainPage.getRange('H12:I12').mergeAcross();
+
+    //Sets CSV IMPORT OPTIONS
+    mainPage.getRange('B15:I17').merge().setValue('CSV IMPORT OPTIONS').setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    mainPage.getRange('B18:I19').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#fafafa');
+    mainPage.getRange('B18:B19').merge();
+    mainPage.getRange('C18:D19').merge().setValue('CALCULATE FORMULAS').setHorizontalAlignment('left');
+    mainPage.getRange('E18:E19').merge();
+    mainPage.getRange('F18:G19').merge().setValue('IMPORT CSV').setHorizontalAlignment('left');
+    mainPage.getRange('H18:H19').merge();
+    mainPage.getRange('I18:I19').merge().setValue('CLEAR SHEET').setHorizontalAlignment('left');
+
+    //Sets ANALYSIS OPTIONS section
+    mainPage.getRange('B22:I24').merge().setValue('PROCESSING OPTIONS').setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+    mainPage.getRange('B25:I26').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#fafafa');
+    mainPage.getRange('B27:I29').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+
+    mainPage.getRange('B25:D26').merge().setValue('ALGORITHMS');
+    mainPage.getRange('E25:G26').merge().setValue('WASH SALES');
+    mainPage.getRange('H25:H26').merge().setValue('YEAR');
+    mainPage.getRange('I25:I26').merge().setValue('CALCULATE');
+    mainPage.getRange('C27:D27').merge().setValue('SORT CHRONOLOGICALLY').setHorizontalAlignment('left');
+    mainPage.getRange('C28:D28').merge().setValue('PROCESS TRANSACTIONS').setHorizontalAlignment('left');
+    mainPage.getRange('C29:D29').merge().setValue('OUTPUT TAX DOCUMENT').setHorizontalAlignment('left');
+    mainPage.getRange('F27:G27').merge().setValue('IGNORE').setHorizontalAlignment('left');
+    mainPage.getRange('F28:G28').merge().setValue('OBSERVE').setHorizontalAlignment('left');
+
+    //Sets REPAIR FORMATTING
+    mainPage.getRange('B32:D33').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#fafafa');
+    mainPage.getRange('B32:B33').merge();
+    mainPage.getRange('C32:D33').merge().setValue('REPAIR FORMATTING').setFontWeight('BOLD');
+    
+    //Sets YOUR WALLET
+    mainPage.getRange('K2:L4').merge().setValue('YOUR WALLET').setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#d3d3d3');
+    mainPage.getRange('K5:L6').setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBackground('#fafafa');
+    mainPage.getRange('K5:K6').merge().setValue('COIN');
+    mainPage.getRange('L5:L6').merge().setValue('AMOUNT');
+    if (storeWallet !== undefined) {
+      mainPage.getRange(7,11, storeWallet.length, 2).setValues(storeWallet).setBorder(true, true, true, true, null, null, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setBorder(null, null, null, null, null, true, 'black', SpreadsheetApp.BorderStyle.SOLID);
+    }
+    mainPage.getRange('L7:L' + maxRows).setNumberFormat('@STRING@');
+    checkboxes.insertCheckboxes();
+
+
+    //Re-applies former settings
+    if (storeWalletDate !== '') {
+      mainPage.getRange('K2').setNote(storeWalletDate).setValue('YOUR WALLET\n' + storeWalletDate);
+    }
+    for (let a = 0; a < 6; a++ ){
+      let index = storeSettings[a].indexOf(true);
+      if (index !== -1) {
+        mainPage.getRange(a+7,index + 1,1,1).check();
+      } else if (a < 2) {
+        mainPage.getRange(a+7,8,1,1).check();
+      } else {
+        mainPage.getRange(a+7,4,1,1).check();
+      }
+    }
+    for (let b = 20; b < storeSettings.length; b++) {
+      for (let c = 0; c < storeSettings[b].length; c++) {
+        if (storeSettings[b][c] === true) {
+          mainPage.getRange(b+7,c+1,1,1).check();
+        }
+      }
+    }
+    if (storeSettings[21][4] === true) {
+      mainPage.getRange('E28').check();
+    } else {
+      mainPage.getRange('E27').check();
+    }
+    mainPage.getRange('H28').setValue(storeSettings[21][7]);
+  }
+}
+
+function transactionsFormatting(startingRow, endingRow, thisSheet) {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName(thisSheet);
+
+  let maxRows = transactions.getMaxRows();
+  let maxCol = transactions.getMaxColumns();
+  let transactionRule = SpreadsheetApp.newDataValidation().requireValueInList(['BUY', 'SELL', 'TRADE', 'SWAP', 'TRANSFER', 'GIFT', 'DONATE']);
+  let methodRule = SpreadsheetApp.newDataValidation().requireValueInList(['FIFO', 'LIFO', 'HIFO']);
+
+  //Verifies number of rows selected if applicable for REPAIR FORMATTING, then deletes erroneous columns and completely clears all formatting leaving only values
+  if (isNaN(parseInt(startingRow)) || isNaN(parseInt(endingRow))) {
+    startingRow = 4;
+    endingRow = maxRows;
+  }
+  if (maxCol > 23) { 
+    transactions.deleteColumns(23,maxCol-22);
+  } else if (maxCol < 23) {
+    transactions.insertColumnsAfter(maxCol, 23-maxCol);
+  }
+  transactions.getRange(startingRow, 1, (endingRow - startingRow + 1), 23).clearFormat().breakApart().setFontSize('10').setFontColor('black').setFontWeight('normal').setFontStyle('normal').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true).setDataValidation(null);  
+  
+  //Resets column widths and all row heights up to selected endingRow
+  transactions.setRowHeights(1, endingRow,22);
+  transactions.setRowHeight(1,40);
+  transactions.setRowHeight(3,2);
+  transactions.setColumnWidth(1, 160);
+  transactions.setColumnWidth(2, 65);
+  transactions.setColumnWidth(3, 105);
+  transactions.setColumnWidth(4, 2);
+  transactions.setColumnWidth(5, 160);
+  transactions.setColumnWidth(6, 105);
+  transactions.setColumnWidth(7, 105);
+  transactions.setColumnWidth(8, 105);
+  transactions.setColumnWidth(9, 2);
+  transactions.setColumnWidth(10, 160);
+  transactions.setColumnWidth(11, 160);
+  transactions.setColumnWidth(12, 105);
+  transactions.setColumnWidth(13, 105);
+  transactions.setColumnWidth(14, 105);
+  transactions.setColumnWidth(15, 160);
+  transactions.setColumnWidth(16, 105);
+  transactions.setColumnWidth(17, 105);
+  transactions.setColumnWidth(18, 105);
+  transactions.setColumnWidth(19, 2);
+  transactions.setColumnWidth(20, 160);
+  transactions.setColumnWidth(21, 65);
+  transactions.setColumnWidth(22, 105);
+  transactions.setColumnWidth(23, 2);
+
+  // Headers always reset and re-allied regardless of range
+  let headers = transactions.getRange('A1:V1');
+  let subHeaders = transactions.getRange('A2:V2');
+  let table = transactions.getRange('A' + startingRow + ':V' + endingRow);
+  transactions.getRange('A1:V3').clearNote().clearFormat().breakApart().setFontSize('10').setFontColor('black').setFontWeight('normal').setFontStyle('normal').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true).setDataValidation(null);
+  headers.setFontWeight('bold').setBackground('#d3d3d3');
+  subHeaders.setFontWeight('bold').setBackground('#d3d3d3').setFontSize('9');
+  headers.setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  subHeaders.setBorder(false, true, false, true, false, false,'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  subHeaders.setBorder(true, null, true, null, true, true, 'black', SpreadsheetApp.BorderStyle.SOLID);
+  table.setBorder(null, true, true, true, null, null, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+  table.setBorder(null, null, true, null, true, true, 'black', SpreadsheetApp.BorderStyle.SOLID); 
+  transactions.getRange('A3:V3').mergeAcross().clearFormat().setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID); 
+  transactions.getRange('D1:D2').mergeVertically().clearFormat().setBorder(true, true, false, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID); 
+  transactions.getRange('I1:I2').mergeVertically().clearFormat().setBorder(true, true, false, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID); 
+  transactions.getRange('S1:S2').mergeVertically().clearFormat().setBorder(true, true, false, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID); 
+  
+  transactions.getRange('A1:C1').mergeAcross().setValue('ASSET');
+  transactions.getRange('A2').setValue('AMOUNT');
+  transactions.getRange('B2').setValue('COIN');
+  transactions.getRange('C2').setValue('TRANSACTION TYPE');
+  transactions.getRange('E1:H1').mergeAcross().setValue('BUY');
+  transactions.getRange('E2').setValue('DATE & TIME ACQUIRED\n(see note)').setNote('Improper date formatting will break the calculation. The date format is as follows: \n \nm/dd/yyyy h:mm:ss am/pm \n \nAM or PM must be typed in full for the time to properly auto-complete');
+  transactions.getRange('F2').setValue('EXCHANGE\nOR WALLET');
+  transactions.getRange('G2').setValue('MARKET VALUE');
+  transactions.getRange('H2').setValue('COST BASIS\n(include fees)');
+  transactions.getRange('J1:R1').mergeAcross().setValue('SELL');
+  transactions.getRange('J2').setValue('DATE & TIME ACQUIRED \n(auto-filled)');
+  transactions.getRange('K2').setValue('DATE & TIME\nSOLD OR TRADED\n(see note)').setNote('Improper date formatting will break the calculation. The date format is as follows: \n \nm/dd/yyyy h:mm:ss am/pm \n \nAM or PM must be typed in full for the time to properly auto-complete');
+  transactions.getRange('L2').setValue('EXCHANGE\nOR WALLET');
+  transactions.getRange('M2').setValue('METHOD');
+  transactions.getRange('N2').setValue('PROCEEDS OR MARKET VALUE');
+  transactions.getRange('O2').setValue('GAS');
+  transactions.getRange('P2').setValue('FEES');
+  transactions.getRange('Q2').setValue('COST BASIS\n(auto-filled)');
+  transactions.getRange('R2').setValue('NET\n(auto-filled)');
+  transactions.getRange('T1:V1').mergeAcross().setValue('TRADE, SWAP, TRANSFER, GIFT & DONATE').setBackground('#d3d3d3').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  transactions.getRange('T2').setValue('NEW AMOUNT');
+  transactions.getRange('U2').setValue('NEW COIN');
+  transactions.getRange('V2').setValue('NEW DESTINATION');
+
+  //Data dynamically repaired by user input from REPAIR FORMATTING; this section applies number formatting and formulas
+      
+  transactions.getRange('A' + startingRow + ':A' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('B' + startingRow + ':B' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('C' + startingRow + ':C' + endingRow).setNumberFormat('@STRING@').setDataValidation(transactionRule);
+  transactions.getRange('E' + startingRow + ':E' + endingRow).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+  transactions.getRange('F' + startingRow + ':F' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('G' + startingRow + ':G' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('H' + startingRow + ':H' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('J' + startingRow + ':J' + endingRow).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+  transactions.getRange('K' + startingRow + ':K' + endingRow).setNumberFormat('m/dd/yyyy h:mm:ss am/pm');
+  transactions.getRange('L' + startingRow + ':L' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('M' + startingRow + ':M' + endingRow).setNumberFormat('@STRING@').setDataValidation(methodRule).setValue('FIFO');
+  transactions.getRange('N' + startingRow + ':N' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('O' + startingRow + ':O' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('P' + startingRow + ':P' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('Q' + startingRow + ':Q' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('R' + startingRow + ':R' + endingRow).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+  transactions.getRange('T' + startingRow + ':T' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('U' + startingRow + ':U' + endingRow).setNumberFormat('@STRING@');
+  transactions.getRange('V' + startingRow + ':V' + endingRow).setNumberFormat('@STRING@');
+
+  //Data dynamically repaired by user input from REPAIR FORMATTING; this section applies input guidance
+  function fixInputGuide(){
+    let transactionType = transactions.getRange(startingRow,3,(endingRow - startingRow + 1),1).getValues();
+    let newBackgrounds =[]
+    let newFontColors = [];
+    let dataValidations = transactions.getRange(startingRow,13,(endingRow - startingRow + 1),1).getDataValidations();
+
+    for (let i = 0; i < transactionType.length; i++) {
+      let rowBackground;
+      let rowFontColors;
+      if (transactionType[i][0] === 'BUY') {
+        dataValidations[i][0] = null;
+        rowBackground = ['white', 'white', 'white', 'white' ,'white', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'white', '#8b8b8b', '#8b8b8b', '#8b8b8b'];
+        rowFontColors = ['black', 'black', 'black', 'black' ,'black', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'black', '#8b8b8b', '#8b8b8b', '#8b8b8b'];
+      } else if (transactionType[i][0] === 'SELL') {
+        rowBackground = ['#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', '#8b8b8b','#8b8b8b','#8b8b8b'];
+        rowFontColors = ['#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', '#8b8b8b','#8b8b8b','#8b8b8b'];
+      } else if (transactionType[i][0] === '') {
+        rowBackground = ['white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white','white','white'];
+        rowFontColors = ['black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black','black','black'];
+      } else {
+        rowBackground = ['#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white', 'white','white','white'];
+        rowFontColors = ['#8b8b8b', '#8b8b8b', '#8b8b8b', '#8b8b8b', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black', 'black','black','black'];
+      }
+      newBackgrounds.push(rowBackground);
+      newFontColors.push(rowFontColors);
+    }
+    transactions.getRange(startingRow,5,transactionType.length,18).setBackgrounds(newBackgrounds).setFontColors(newFontColors);
+    transactions.getRange(startingRow,13,dataValidations.length,1).setDataValidations(dataValidations);
+  }
+  fixInputGuide();
+} 

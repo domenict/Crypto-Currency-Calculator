@@ -1,0 +1,30 @@
+function sortTransactions() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+
+  // Compresses DATE & TIME ACQUIRED and DATE & TIME SOLD OR TRADED into one array of data
+  let rows = transactions.getMaxRows();
+  let values = transactions.getRange(4,5,rows-3,7).getValues();
+  let dates = [];
+  for (let i = 0; i<values.length; i++) {
+    values[i].splice(1,5);
+    if (values[i][0] === '' && values[i][1] === '') {
+      values[i].shift();
+    } else if (values[i][0] === '') {
+      values[i].shift();
+    } else {
+      values[i].pop();
+    }
+    dates.push(values[i]);
+  }
+
+  //Insert column, set to dates array, sort by column, then delete the column -- faster way? probably not.
+  function writeSort() {
+    transactions.insertColumns(22,1);
+    transactions.getRange(4,22,dates.length,1).setValues(dates);
+    let range = transactions.getRange('A4:V' + rows);
+    range.sort(22)
+    transactions.deleteColumn(22);
+  }
+  writeSort();
+} 

@@ -1,0 +1,348 @@
+function create8949() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let year = mainPage.getRange('H28').getValue().toString();
+  let sheetThisYear = activeSheet.getSheetByName(year);
+  let thisYearData;
+  let thisYearNotes;
+  let writeTo8949 = [[],[],[],[]];
+  let breakDownNotes = [[],[]];
+  let filterLength = 0;
+
+  let checkSort = verifySort();
+  let isSorted = checkSort[0];
+  let startingRow = checkSort[2];
+  let numberOfRows = checkSort[3];
+  let yearRange = transactions.getRange(startingRow, 1, numberOfRows, 23);
+  if (isSorted) {
+    thisYearData = yearRange.getValues();
+    thisYearNotes = yearRange.getNotes();
+    if (thisYearNotes[thisYearNotes.length-1][22] === '') {
+      Logger.log('TRANSACTIONS has not been processed')
+    } else if (year === '') {
+      Logger.log('Year has not been selected');
+    } else {
+      filterTransactions();
+      output8949();
+
+      sheetThisYear.getRange(1, 10, filterLength, 1).createFilter();
+      let filter = sheetThisYear.getFilter();
+      let criteria = SpreadsheetApp.newFilterCriteria().setHiddenValues([]).build();
+      filter.setColumnFilterCriteria(10, criteria);
+    }
+  } else {
+    Logger.log(checkSort[1]);
+  }
+  Logger.log('8949\t\t' + JSON.stringify(writeTo8949)); 
+
+
+
+
+
+  function filterTransactions() {
+    for (let a = 0; a < thisYearData.length; a++) {
+      let coin = thisYearData[a][1];
+      let transactionType = thisYearData[a][2];
+      let exchange = thisYearData[a][11]
+      let sales = thisYearNotes[a][9];
+      if (transactionType !== 'BUY') {
+        if (sales !== '') {
+          let totalSaleAmount = thisYearData[a][0];
+          let proceeds = bigDecimal(thisYearData[a][13].toString(), thisYearData[a][15].toString(), 'sub');
+          let proceedsRounded = '0';
+
+          let proceedsFromGas = '0';
+          let gasFee = thisYearData[a][14];
+          let gasSeparate = false;
+          let gasFeeOptions = mainPage.getRange('B7:H12').getValues();
+          let gasFeeType;
+          for (let c = 0; c < gasFeeOptions.length; c++) {
+            if (gasFeeOptions[c][0] === thisYearData[a][2]) {
+              gasFeeType = gasFeeOptions[c].indexOf(true);
+              break;
+            }
+          }
+          if (!isNaN(Number(gasFee)) && gasFeeType !== 3) {
+            gasSeparate = true;
+          }
+          if (Number(thisYearNotes[a][13]) !== 0) {
+            proceedsFromGas = thisYearNotes[a][13].split(': ');
+            proceedsFromGas = proceedsFromGas[1];
+          }
+          sales = sales.split('_');
+          sales.pop();
+          
+          for (let b = 0; b < sales.length; b++) {
+            sales[b] = sales[b].split(/\r?\n+/).filter((a) => a);
+            for (let c = 0; c < sales[b].length; c++) {
+              sales[b][c] = sales[b][c].split(' ');
+            }
+            //Logger.log(sales[b]);
+ 
+            let portion = bigDecimal(sales[b][0][3], totalSaleAmount, 'div');
+            let proceedsThisSale = convertToCurrency(bigDecimal(proceeds.toString(), portion, 'mult'));
+            proceedsRounded = bigDecimal(proceedsRounded, proceedsThisSale, 'add');
+            if (gasSeparate && b === sales.length - 2 || !gasSeparate && b === sales.length - 1) {
+              proceedsRoundingError = bigDecimal(proceeds, proceedsRounded, 'sub');
+              proceedsThisSale = bigDecimal(proceedsThisSale, proceedsRoundingError, 'add')
+            } else if (gasSeparate && b === sales.length - 1) {
+              proceedsThisSale = proceedsFromGas.slice(1);
+            }
+            proceedsThisSale = convertToCurrency(proceedsThisSale);
+
+            let asset = sales[b][0][3] + '   ' + sales[b][0][4];
+            let purchaseDate = sales[b][0][0];
+            let sellDate = Utilities.formatDate(thisYearData[a][10], activeSheet.getSpreadsheetTimeZone(), "MM/dd/yyyy");
+            let costBasis = sales[b][1][2].slice(1);
+            let netThisSale = bigDecimal(proceedsThisSale, costBasis, 'sub');
+            let holdingPeriod, code, wash;
+
+            if (sales[b][2] !== undefined) {
+              holdingPeriod = sales[b][2][2];
+            } else {
+              holdingPeriod = purchaseDate;
+            }
+            if (sales[b][3] !== undefined) {
+              code = 'W';
+              wash = sales[b][3][1].slice(1);
+              netThisSale = convertToCurrency(bigDecimal(netThisSale, wash, 'add'));
+            } else {
+              code = wash = '';
+            }
+
+            let writeThisSale = [asset, purchaseDate, sellDate, proceedsThisSale, costBasis, code, wash, netThisSale, '', exchange];
+            let oneYearLater = new Date(new Date(holdingPeriod).setFullYear(new Date(holdingPeriod).getFullYear() + 1))
+            if (oneYearLater > new Date(sellDate)) {
+              writeTo8949[0].push(writeThisSale);
+            } else {
+              writeTo8949[1].push(writeThisSale);
+            }
+          }  
+        }
+
+        if (transactionType === 'GIFT' || transactionType === 'DONATE') {
+          let asset = thisYearData[a][0] + '   ' + thisYearData[a][1];
+          let value = '$' + convertToCurrency(bigDecimal(thisYearData[a][13].toString(), thisYearData[a][15].toString(), 'sub'));
+          let recipient = thisYearData[a][21];
+
+          let note = createBreakdownNote(a, coin, exchange);
+          let writeThisSale = [asset, value, recipient, note];
+          if (transactionType === 'GIFT') {
+            writeTo8949[2].push(writeThisSale);
+          } else {
+            writeTo8949[3].push(writeThisSale);
+          }      
+        }
+      }
+    }
+
+    writeTo8949[2].sort((a, b) => a[2].localeCompare(b[2]));
+    writeTo8949[3].sort((a, b) => a[2].localeCompare(b[2]));
+
+    for (let f = 0; f < writeTo8949[2].length; f++) {
+      breakDownNotes[0].push([writeTo8949[2][f][3]])
+      writeTo8949[2][f].pop();
+    }
+    for (let g = 0; g < writeTo8949[3].length; g++) {
+      breakDownNotes[1].push([writeTo8949[3][g][3]])
+      writeTo8949[3][g].pop();
+    }
+  }
+
+
+
+
+
+  function output8949() {
+    if (sheetThisYear === null) {
+      let importCSV = activeSheet.getSheetByName('IMPORT CSV');
+      importCSV.activate();
+      SpreadsheetApp.flush();
+      activeSheet.insertSheet().setName(year).activate();
+      sheetThisYear = activeSheet.getSheetByName(year);
+    } else {
+      sheetThisYear.activate();
+      activeSheet.moveActiveSheet(4);
+    }
+
+    let maxRow = sheetThisYear.getMaxRows();
+    let maxCol = sheetThisYear.getMaxColumns();
+    if (maxCol > 10) { 
+      sheetThisYear.deleteColumns(1, maxCol-10)
+    } else if (maxCol < 10) {
+      sheetThisYear.insertColumnsAfter(maxCol, 10-maxCol);
+    }
+    sheetThisYear.getRange(1,1, maxRow, 10).clear().clearFormat().breakApart().clearNote().setFontSize('10').setFontColor('black').setFontWeight('normal').setFontStyle('normal').setHorizontalAlignment('center').setVerticalAlignment('middle').setDataValidation(null);
+
+    let oldFilter = sheetThisYear.getFilter();
+    if (oldFilter) {
+      oldFilter.remove() 
+    }
+
+    sheetThisYear.setRowHeights(1,maxRow,20);
+    sheetThisYear.setColumnWidth(1, 200);
+    sheetThisYear.setColumnWidth(2, 160);
+    sheetThisYear.setColumnWidth(3, 160);
+    sheetThisYear.setColumnWidth(4, 105);
+    sheetThisYear.setColumnWidth(5, 105);
+    sheetThisYear.setColumnWidth(6, 65);
+    sheetThisYear.setColumnWidth(7, 105);
+    sheetThisYear.setColumnWidth(8, 105);
+    sheetThisYear.setColumnWidth(9, 3);
+    sheetThisYear.setColumnWidth(10, 105);
+
+    let totalRows = 0;
+    for (let e = 0; e < writeTo8949.length; e++) {
+      if (writeTo8949[e].length !== 0) {
+        totalRows += writeTo8949[e].length + 3;
+      }
+    }
+    if (maxRow > totalRows) {
+      sheetThisYear.deleteRows(totalRows, maxRow - totalRows);
+    } else if (maxRow < totalRows) {
+      sheetThisYear.insertRowsAfter(maxRow,totalRows - maxRow);
+    }
+
+    let currentRow = 1;
+    let blankRow = [['','','','','','','','','','']]
+    for (let d = 0; d < writeTo8949.length; d++) {
+      if (d === 2){
+        filterLength = currentRow - 2;
+      }
+      if (writeTo8949[d].length !== 0) {
+        if (d === 0 || d === 1) {
+          sheetThisYear.getRange(currentRow, 1, 1, 8).merge().setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+          sheetThisYear.setRowHeight(currentRow, 60);
+          if (d === 0) {
+            sheetThisYear.getRange(currentRow,1).setValue('SHORT TERM');
+          } else {
+            sheetThisYear.getRange(currentRow,1).setValue('LONG TERM');
+          }
+          sheetThisYear.getRange(currentRow,10).setValue('FILTER').setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+          currentRow++;
+
+          let subHeader = [['DESCRIPTION OF PROPERTY', 'DATE ACQUIRED', 'DATE SOLD/DISPOSED', 'PROCEEDS', 'COST BASIS', 'CODE', 'ADJUSTMENT', 'GAIN OR LOSS' ,'','EXCHANGE']]
+          sheetThisYear.getRange(currentRow, 1, 1, 10).setBackground('#fafafa').setFontWeight('bold').setFontSize('9').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_MEDIUM).setValues(subHeader); 
+          sheetThisYear.setRowHeight(currentRow, 40);
+          currentRow++;
+
+          sheetThisYear.getRange(currentRow, 1, writeTo8949[d].length, 10).setValues(writeTo8949[d]).setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+          sheetThisYear.getRange(currentRow, 4, writeTo8949[d].length, 2).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+          sheetThisYear.getRange(currentRow, 7, writeTo8949[d].length, 2).setNumberFormat('_("$"* #,##0.00_);_("$"* \\(#,##0.00\\);_("$"* "-"??_);_(@_)');
+          sheetThisYear.getRange(currentRow - 2, 9, writeTo8949[d].length + 2, 1).setBorder(false, true, false, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+          currentRow +=  writeTo8949[d].length;
+          sheetThisYear.getRange(currentRow, 1, 1, 10).setBorder(true, null, null, null, null, null, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+        }
+
+        if (d === 2 || d === 3) {
+          sheetThisYear.getRange(currentRow, 1, 1, 3).merge().setBackground('#d3d3d3').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+          sheetThisYear.setRowHeight(currentRow, 60);
+          if (d === 2) {
+            sheetThisYear.getRange(currentRow,1).setValue('GIFTS');
+          } else {
+            sheetThisYear.getRange(currentRow,1).setValue('DONATIONS');
+          }
+          currentRow++;
+
+          let subHeader = [['DESCRIPTION OF PROPERTY', 'VALUE', 'RECIPIENT']]
+          sheetThisYear.getRange(currentRow, 1, 1, 3).setBackground('#fafafa').setFontWeight('bold').setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK).setFontSize('9').setValues(subHeader);
+          sheetThisYear.setRowHeight(currentRow, 40);
+          currentRow++;
+
+          sheetThisYear.getRange(currentRow, 1, writeTo8949[d].length, 3).setValues(writeTo8949[d]).setBorder(true, true, true, true, false, false, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+          if (d === 2) {
+            sheetThisYear.getRange(currentRow, 1, writeTo8949[d].length, 1).setNotes(breakDownNotes[0]);
+          } else {
+            sheetThisYear.getRange(currentRow, 1, writeTo8949[d].length, 1).setNotes(breakDownNotes[1]);
+          }
+          currentRow +=  writeTo8949[d].length;
+          sheetThisYear.getRange(currentRow, 1, 1, 3).setBorder(true, null, null, null, null, null, 'black', SpreadsheetApp.BorderStyle.SOLID_THICK);
+        }
+
+        sheetThisYear.getRange(currentRow, 1, 1, 10).setValue(blankRow);
+        sheetThisYear.setRowHeight(currentRow, 40);
+        currentRow++;
+      }
+    }
+    sheetThisYear.setRowHeight(currentRow-1, 2);
+  }
+
+
+
+
+  
+  function createBreakdownNote(currentRow, coin, exchange) {
+    let coinArrays = transactions.getRange(currentRow + startingRow - 1, 23, 2, 1).getNotes();
+    let thisCoinArray = JSON.parse(coinArrays[1]);
+    let lastCoinArray = JSON.parse(coinArrays[0]);
+    
+    let beforeSale;
+    for (let h = 0; h < lastCoinArray.length; h++) {
+      if (lastCoinArray[h][0] === exchange) {
+        for (let i = 0; i < lastCoinArray[h].length; i++) {
+          if (lastCoinArray[h][i][0] === coin) {
+            beforeSale = lastCoinArray[h][i]
+          }
+        }
+      }
+    }
+    let afterSale;
+    for (let j = 0; j < thisCoinArray.length; j++) {
+      if (thisCoinArray[j][0] === exchange) {
+        for (let k = 0; k < thisCoinArray[j].length; k++) {
+          if (thisCoinArray[j][k][0] === coin) {
+            afterSale = thisCoinArray[j][k]
+          }
+        }
+      }
+    }
+
+    let thisNote = '';
+    let noteAmount, noteDate, noteRow, noteCostBasis;
+    if (afterSale === undefined) {
+      for (let l = 1; l < beforeSale.length; l++) {
+        noteAmount = beforeSale[l][0] + ' ' + coin;
+        noteDate = beforeSale[l][1];
+        noteRow = beforeSale[l][4];
+        noteCostBasis = transactions.getRange(noteRow + 4,7,1,1).getValue();
+
+        thisNote = thisNote + 'ASSET: ' + noteAmount + '\n' + 'PURCHASED: ' + noteDate + '\n' + 'COST BASIS: $' + noteCostBasis.toFixed(2) + '\n\n';
+      }
+    } else {
+      let difference = [];
+      for (let m = 1; m < beforeSale.length; m++) {
+        for (let n = 1; n < afterSale.length; n++) {
+          if (JSON.stringify(beforeSale[m]) === JSON.stringify(afterSale[n])) {
+            break;
+          } else if (n === afterSale.length - 1 && JSON.stringify(beforeSale[m]) !== JSON.stringify(afterSale[n])) {
+            if (difference.length === 0) {
+              difference.push(beforeSale[m])
+            } else {
+              for (let o = 0; o < difference.length; o++) {
+                if (JSON.stringify(beforeSale[m]) === JSON.stringify(difference[o])) {
+                  break;
+                }
+                if (o === difference.length - 1 && JSON.stringify(beforeSale[m]) !== JSON.stringify(difference[o])) {
+                  difference.push(beforeSale[m]);
+                  break;
+                }
+              }
+            } 
+          }
+        }
+      }
+
+      for (let p = 0; p < difference.length; p++) {
+        noteAmount = difference[p][0] + ' ' + coin;
+        noteDate = difference[p][1];
+        noteRow = difference[p][4];
+        noteCostBasis = transactions.getRange(noteRow + 4,7,1,1).getValue();
+
+        thisNote = thisNote + 'ASSET: ' + noteAmount + '\n' + 'PURCHASED: ' + noteDate + '\n' + 'COST BASIS: $' + Number(noteCostBasis).toFixed(2) + '\n\n';
+      }
+    }
+    
+    return thisNote;
+  }
+}

@@ -1,0 +1,39 @@
+/* Function requires a trigger to open to be utilized to its fullest. Uses an array to check if sheet exists and compares to null. If sheet is null, uses a map to name the sheet and place sheet accordingly via insertSheet function. */
+
+function autoOpen() {
+  let activeSheet = SpreadsheetApp.getActiveSpreadsheet();
+  let mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  let transactions = activeSheet.getSheetByName('TRANSACTIONS');
+  let importCSV = activeSheet.getSheetByName('IMPORT CSV');
+  let checkIfNull = [mainPage, transactions, importCSV];
+
+  function insertSheet(string) {
+    let sheets = activeSheet.getSheets();
+    sheets[0].activate(); 
+    SpreadsheetApp.flush();
+    activeSheet.insertSheet();
+    sheets = activeSheet.getSheets();
+    sheets[1].setName(string).activate();
+  }
+
+  let map = [['MAIN PAGE', 1], ['TRANSACTIONS', 2], ['IMPORT CSV', 3]];
+  for (let a = 0; a < map.length; a++) {
+    if (checkIfNull[a] === null) {
+      insertSheet(map[a][0]);
+    } else {
+      checkIfNull[a].activate();
+    }
+    activeSheet.moveActiveSheet(map[a][1]);
+  }
+
+  mainPage = activeSheet.getSheetByName('MAIN PAGE');
+  mainPage.activate();
+  let status = mainPage.getRange('G32');
+  status.setValue('LOADING...').setFontWeight('bold').setFontSize(26);
+  if (checkIfNull.indexOf(null) !== -1) {
+    fixFormat('-','-', 'TRANSACTIONS');
+  } else {
+    addingYears();
+  }
+  status.setValue('');
+}
