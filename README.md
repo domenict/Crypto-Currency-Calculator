@@ -1,9 +1,7 @@
 # Crypto-Currency-Calculator
 A crypto currency logging tool using Google Scripts for Google Sheets made to assist with tax reporting
 
-==================================================================================
-SET-UP
-==================================================================================
++++ SET-UP +++
 - Open up Google Chrome and make a new Google Sheet. Name it anything you want.
 - At the top, go to Extensions -> Apps Script
 - For each of the txt files, you will need to copy and paste the script into a
@@ -44,15 +42,11 @@ SET-UP
   the page. The scripts will build the Google Sheet.
 
 
-==================================================================================
-FEATURES
-==================================================================================	
++++ FEATURES +++
 The tool is fairly rich for a prototype. To understand some of the basic
 features, see below.
 
-+++++++++
 MAIN PAGE
-+++++++++
 GAS FEES - Gas is a tax documentation nightmare with no consensus on how to 
 properly manage. The IRS has no documentation on how to report them, however,
 the generally accepted 'safe' methods are default on newly a built sheet. The user
@@ -87,9 +81,7 @@ YOUR WALLET - Calculates total coin across all exchanges of each type of coin
 once PROCESS TRANSACTIONS is complete.
 
 
-++++++++++++
-TRANSACTIONS
-++++++++++++
++++ TRANSACTIONS +++
 There's a lot to pack in with this sheet. Most of it requires some bit of
 knowledge on crypto trading to understand, but some key points are the following:
 
@@ -117,15 +109,11 @@ however, could possibly result in the sold coin being a short term trade which
 generally results in higher taxes. 
 
 
-**********
-IMPORT CSV
-**********
++++ IMPORT CSV +++
 WIP
 
 
-*************
-TAX DOCUMENTS
-*************
++++ TAX DOCUMENTS +++
 Once one of these is exported, it will look very much like an 8949 that you would
 report to the IRS. If wash sales are selected, codes and adjustments are output.
 It is also possible to filter out by exchange as this may be useful in the future.
